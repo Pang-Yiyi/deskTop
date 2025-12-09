@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(conda activate:*)",
+      "Bash(conda list:*)",
+      "Bash(conda run:*)",
+      "Bash(C:/Users/User/anaconda3/envs/torch_kungfu/python.exe:*)",
+      "Bash(C:/Users/User/anaconda3/envs/torch_kungfu/Scripts/pip.exe install:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

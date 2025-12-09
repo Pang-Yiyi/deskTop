@@ -31,6 +31,8 @@ from ultralytics.engine.results import Results
 
 from helper.model import hand_model, pose_model
 from helper.database import sqlite3_database
+from helper.kungfu_classifier import get_kungfu_classifier
+from helper.angle_calculator import extract_angles_from_keypoints, is_valid_keypoints
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.StreamHandler(sys.stdout))
@@ -242,10 +244,14 @@ class TestingPage(QWidget):
         self.posture_detector = pose_model
         self.hand_detector = hand_model
         self.sqlite3_database = sqlite3_database
+        self.kungfu_classifier = get_kungfu_classifier()
 
         self.left_npy_path: Path | str | None = None
         self.right_npy_path: Path | str | None = None
         self.dtw_path: dict[int, tuple] = {}
+
+        # 學生影片的關鍵點資料 (用於動作分類)
+        self.student_keypoints: list[np.ndarray] = []
 
         self.video_left = VideoWidget()
         self.video_right = VideoWidget()
@@ -269,6 +275,19 @@ class TestingPage(QWidget):
         self.similarity_label = QLabel("相似度: 無")
         self.similarity_label.setStyleSheet(
             "font-size: 18px; font-weight: bold; color: #4CAF50;"
+        )
+
+        # 動作分類結果標籤
+        self.action_label = QLabel("動作辨識: 等待載入影片...")
+        self.action_label.setStyleSheet(
+            "font-size: 16px; font-weight: bold; color: #2196F3; "
+            "border: 2px solid #2196F3; border-radius: 8px; padding: 8px;"
+        )
+
+        # 動作統計標籤
+        self.action_stats_label = QLabel("")
+        self.action_stats_label.setStyleSheet(
+            "font-size: 12px; color: #666;"
         )
 
         self.progress_slider = QSlider(Qt.Orientation.Horizontal)
@@ -298,6 +317,8 @@ class TestingPage(QWidget):
 
         result_layout = QVBoxLayout()
         result_layout.addWidget(self.similarity_label)
+        result_layout.addWidget(self.action_label)
+        result_layout.addWidget(self.action_stats_label)
         result_layout.addWidget(QLabel("播放同步:"))
         result_layout.addWidget(self.progress_slider)
         result_layout.addWidget(self.frame_label)
@@ -325,17 +346,21 @@ class TestingPage(QWidget):
         )
         if not path:
             return
-        uploaded_video_path = Path(path)
-        predicted_video_path, predicted_npy_path = self.posture_detector.detect_video(
-            uploaded_video_path
-        )
-
-        self.posture_detector.save_npy(predicted_npy_path)
-        self.video_left.load_video(predicted_video_path)
-        self.left_npy_path = predicted_npy_path
 
         try:
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
+            uploaded_video_path = Path(path)
+            predicted_video_path, predicted_npy_path = self.posture_detector.detect_video(
+                uploaded_video_path
+            )
+
+            self.posture_detector.save_npy(predicted_npy_path)
+            self.video_left.load_video(predicted_video_path)
+            self.left_npy_path = predicted_npy_path
+
+            # 從原始影片擷取關鍵點進行動作分類
+            self._analyze_student_actions(path)
 
             QMessageBox.information(self, "成功", "學生影片已載入並分析完成！")
 
@@ -344,6 +369,80 @@ class TestingPage(QWidget):
 
         finally:
             QApplication.restoreOverrideCursor()
+
+    def _analyze_student_actions(self, video_path: str) -> None:
+        """分析學生影片中的動作類型"""
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return
+
+        self.student_keypoints = []
+        action_counts: dict[str, int] = {}
+        total_valid_frames = 0
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = self.posture_detector.model.predict(frame_rgb, verbose=False)
+
+            if results and len(results[0]) > 0:
+                keypoints_xy = results[0][0].keypoints.xy[0].cpu().numpy()
+                self.student_keypoints.append(keypoints_xy)
+
+                if is_valid_keypoints(keypoints_xy):
+                    try:
+                        angles = extract_angles_from_keypoints(keypoints_xy)
+                        action_code, action_name, probs = self.kungfu_classifier.predict(angles)
+                        confidence = self.kungfu_classifier.get_confidence(probs)
+
+                        # 只有信心度 >= 50% 才計入統計
+                        if confidence >= 0.5:
+                            action_counts[action_name] = action_counts.get(action_name, 0) + 1
+                            total_valid_frames += 1
+                    except Exception:
+                        pass
+
+        cap.release()
+
+        # 更新動作分類結果顯示
+        if total_valid_frames > 0:
+            # 找出主要動作（出現次數最多的）
+            main_action = max(action_counts.items(), key=lambda x: x[1])
+            main_action_name = main_action[0]
+            main_action_ratio = main_action[1] / total_valid_frames * 100
+
+            self.action_label.setText(f"主要動作: {main_action_name} ({main_action_ratio:.1f}%)")
+
+            # 根據動作類型設定顏色
+            action_colors = {
+                '握拳式 (Fist)': '#FF6B6B',
+                '出拳式 (Punch)': '#4ECDC4',
+                '踢腿式 (Kick)': '#45B7D1',
+                '提膝式 (Knee)': '#96CEB4',
+            }
+            color = action_colors.get(main_action_name, '#2196F3')
+            self.action_label.setStyleSheet(
+                f"font-size: 16px; font-weight: bold; color: white; "
+                f"background-color: {color}; border: 2px solid {color}; "
+                f"border-radius: 8px; padding: 8px;"
+            )
+
+            # 顯示各動作統計
+            stats_text = "動作分佈: " + " | ".join(
+                f"{name}: {count}幀 ({count/total_valid_frames*100:.1f}%)"
+                for name, count in sorted(action_counts.items(), key=lambda x: x[1], reverse=True)
+            )
+            self.action_stats_label.setText(stats_text)
+        else:
+            self.action_label.setText("動作辨識: 無法辨識有效動作")
+            self.action_label.setStyleSheet(
+                "font-size: 16px; font-weight: bold; color: #888; "
+                "border: 2px solid #888; border-radius: 8px; padding: 8px;"
+            )
+            self.action_stats_label.setText("")
 
     def _load_teacher(self) -> None:
         data = self.combo_recorded.currentData()
@@ -445,6 +544,14 @@ class TestingPage(QWidget):
     def _on_back(self) -> None:
         self.video_left.stop()
         self.video_right.stop()
+        # 重置動作分類顯示
+        self.action_label.setText("動作辨識: 等待載入影片...")
+        self.action_label.setStyleSheet(
+            "font-size: 16px; font-weight: bold; color: #2196F3; "
+            "border: 2px solid #2196F3; border-radius: 8px; padding: 8px;"
+        )
+        self.action_stats_label.setText("")
+        self.student_keypoints = []
         self.back_callback()
 
 
@@ -454,6 +561,7 @@ class GuidingPage(QWidget):
         self.back_callback = back_callback
         self.posture_detector = pose_model
         self.sqlite3_database = sqlite3_database
+        self.kungfu_classifier = get_kungfu_classifier()
 
         self.teacher_frames: list[np.ndarray] = []
         self.teacher_poses = None
@@ -481,6 +589,22 @@ class GuidingPage(QWidget):
             "border: 3px solid #888; border-radius: 10px; padding: 20px;"
         )
         self.similarity_label.setMinimumHeight(100)
+
+        # 動作分類結果標籤
+        self.action_label = QLabel("動作: 等待偵測...")
+        self.action_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.action_label.setStyleSheet(
+            "font-size: 18px; font-weight: bold; color: #2196F3; "
+            "border: 2px solid #2196F3; border-radius: 8px; padding: 10px;"
+        )
+        self.action_label.setMinimumHeight(60)
+
+        # 信心度標籤
+        self.confidence_label = QLabel("信心度: --")
+        self.confidence_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.confidence_label.setStyleSheet(
+            "font-size: 14px; color: #666;"
+        )
 
         self.progress_label = QLabel("影格: 0 / 0")
         self.progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -516,6 +640,8 @@ class GuidingPage(QWidget):
         middle_layout = QVBoxLayout()
         middle_layout.addStretch()
         middle_layout.addWidget(self.similarity_label)
+        middle_layout.addWidget(self.action_label)
+        middle_layout.addWidget(self.confidence_label)
         middle_layout.addWidget(self.progress_label)
         middle_layout.addWidget(self.finished_label)
         middle_layout.addStretch()
@@ -654,6 +780,14 @@ class GuidingPage(QWidget):
             "font-size: 24px; font-weight: bold; color: #888; "
             "border: 3px solid #888; border-radius: 10px; padding: 20px;"
         )
+        # 重置動作分類標籤
+        self.action_label.setText("動作: 等待偵測...")
+        self.action_label.setStyleSheet(
+            "font-size: 18px; font-weight: bold; color: #2196F3; "
+            "border: 2px solid #2196F3; border-radius: 8px; padding: 10px;"
+        )
+        self.confidence_label.setText("信心度: --")
+        self.confidence_label.setStyleSheet("font-size: 14px; color: #666;")
 
     def _process_frame(self):
         if not self.is_running or not self.camera_cap:
@@ -676,23 +810,41 @@ class GuidingPage(QWidget):
         )
         self.camera_widget.label.setPixmap(QPixmap.fromImage(scaled))
 
-        student_pose = self.posture_detector.model.predict(frame_rgb)
+        student_pose = self.posture_detector.model.predict(frame_rgb, verbose=False)
         if student_pose is None:
             self._update_similarity(0)
+            self._update_action_label(None, None, None)
             return
 
         if len(student_pose[0]) < 1:
             self._update_similarity(0)
+            self._update_action_label(None, None, None)
             return
 
-        student_pose = student_pose[0][0].keypoints.xyn[0].cpu().numpy().T[0]  # type: ignore[reportOptionalMemberAccess]
+        # 取得關鍵點座標 (用於動作分類)
+        keypoints_xy = student_pose[0][0].keypoints.xy[0].cpu().numpy()  # type: ignore[reportOptionalMemberAccess]
+
+        # 進行動作分類
+        if is_valid_keypoints(keypoints_xy):
+            try:
+                angles = extract_angles_from_keypoints(keypoints_xy)
+                action_code, action_name, probs = self.kungfu_classifier.predict(angles)
+                confidence = self.kungfu_classifier.get_confidence(probs)
+                self._update_action_label(action_code, action_name, confidence)
+            except Exception as e:
+                logger.warning(f"動作分類失敗: {e}")
+                self._update_action_label(None, None, None)
+        else:
+            self._update_action_label(None, None, None)
+
+        student_pose_normalized = student_pose[0][0].keypoints.xyn[0].cpu().numpy().T[0]  # type: ignore[reportOptionalMemberAccess]
         if self.teacher_poses is None:
             self._update_similarity(0)
             return
 
         teacher_pose = self.teacher_poses[self.current_frame_idx].T[0]
 
-        similarity = np.linalg.norm(teacher_pose - student_pose).mean() * 100
+        similarity = np.linalg.norm(teacher_pose - student_pose_normalized).mean() * 100
 
         self._update_similarity(float(similarity))
 
@@ -729,6 +881,48 @@ class GuidingPage(QWidget):
                 "background-color: #f44336; border: 3px solid #f44336; "
                 "border-radius: 10px; padding: 20px;"
             )
+
+    def _update_action_label(
+        self,
+        action_code: str | None,
+        action_name: str | None,
+        confidence: float | None
+    ):
+        """更新動作分類結果顯示"""
+        if action_code is None or action_name is None:
+            self.action_label.setText("動作: 偵測中...")
+            self.action_label.setStyleSheet(
+                "font-size: 18px; font-weight: bold; color: #888; "
+                "border: 2px solid #888; border-radius: 8px; padding: 10px;"
+            )
+            self.confidence_label.setText("信心度: --")
+            return
+
+        self.action_label.setText(f"動作: {action_name}")
+
+        # 根據動作類型設定不同顏色
+        action_colors = {
+            'act1': '#FF6B6B',  # 握拳式 - 紅色
+            'act2': '#4ECDC4',  # 出拳式 - 青色
+            'act3': '#45B7D1',  # 踢腿式 - 藍色
+            'act4': '#96CEB4',  # 提膝式 - 綠色
+        }
+        color = action_colors.get(action_code, '#2196F3')
+
+        self.action_label.setStyleSheet(
+            f"font-size: 18px; font-weight: bold; color: white; "
+            f"background-color: {color}; border: 2px solid {color}; "
+            f"border-radius: 8px; padding: 10px;"
+        )
+
+        if confidence is not None:
+            self.confidence_label.setText(f"信心度: {confidence:.1%}")
+            if confidence >= 0.8:
+                self.confidence_label.setStyleSheet("font-size: 14px; color: #4CAF50; font-weight: bold;")
+            elif confidence >= 0.5:
+                self.confidence_label.setStyleSheet("font-size: 14px; color: #FF9800;")
+            else:
+                self.confidence_label.setStyleSheet("font-size: 14px; color: #f44336;")
 
     def _on_back(self):
         self._stop_practice()

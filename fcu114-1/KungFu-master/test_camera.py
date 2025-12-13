@@ -10,6 +10,78 @@ from helper.kungfu_classifier import get_kungfu_classifier
 from helper.angle_calculator import extract_angles_from_keypoints, is_valid_keypoints
 
 
+def is_full_body_detected(keypoints_xy: np.ndarray, keypoints_conf: np.ndarray, min_confidence: float = 0.5) -> tuple:
+    """
+    檢查是否偵測到完整身體（從肩膀到腳踝）
+    使用置信度分數來判斷關鍵點是否真正被偵測到
+
+    參數:
+        keypoints_xy: 關鍵點座標陣列 (17, 2)
+        keypoints_conf: 關鍵點置信度陣列 (17,)
+        min_confidence: 最小置信度閾值
+
+    回傳:
+        (是否偵測到完整身體, 缺少的部位列表)
+    """
+    # 關鍵點名稱對應
+    keypoint_names = {
+        5: "L_Shoulder", 6: "R_Shoulder",
+        11: "L_Hip", 12: "R_Hip",
+        13: "L_Knee", 14: "R_Knee",
+        15: "L_Ankle", 16: "R_Ankle"
+    }
+
+    if keypoints_xy is None or len(keypoints_xy) < 17:
+        return False, ["keypoints_xy invalid"]
+    if keypoints_conf is None or len(keypoints_conf) < 17:
+        return False, ["keypoints_conf invalid"]
+
+    # 必須偵測到的關鍵點索引（肩膀、臀部、膝蓋、腳踝）
+    required_indices = [5, 6, 11, 12, 13, 14, 15, 16]
+    missing_parts = []
+
+    for idx in required_indices:
+        # 檢查置信度是否足夠高
+        conf = keypoints_conf[idx]
+        if conf < min_confidence:
+            missing_parts.append(f"{keypoint_names[idx]}({conf:.0%})")
+            continue
+
+        # 同時檢查座標是否有效
+        x, y = keypoints_xy[idx][0], keypoints_xy[idx][1]
+        if x <= 0 or y <= 0:
+            missing_parts.append(f"{keypoint_names[idx]}(pos)")
+
+    return len(missing_parts) == 0, missing_parts
+
+
+def is_standing_pose(angles: dict, threshold: float = 160.0) -> bool:
+    """
+    判斷是否為站立姿態
+
+    站立特徵：
+    - 雙膝角度接近 180° (腿伸直)
+    - 雙臀角度接近 180° (身體直立)
+
+    參數:
+        angles: 角度字典
+        threshold: 角度閾值，大於此值視為伸直 (預設 160°)
+
+    回傳:
+        是否為站立姿態
+    """
+    r_knee = angles.get('R_Knee_Angle', 0)
+    l_knee = angles.get('L_Knee_Angle', 0)
+    r_hip = angles.get('R_Hip_Angle', 0)
+    l_hip = angles.get('L_Hip_Angle', 0)
+
+    # 雙腿伸直且身體直立
+    knees_straight = r_knee > threshold and l_knee > threshold
+    hips_straight = r_hip > threshold and l_hip > threshold
+
+    return knees_straight and hips_straight
+
+
 def main():
     print("=" * 50)
     print("功夫動作即時辨識測試程式")
@@ -26,6 +98,14 @@ def main():
     print(f"裝置: {info['device']}")
     print(f"動作類別: {info['classes']}")
     print(f"測試準確率: {info.get('test_accuracy', 'N/A')}")
+
+    # 信心度門檻設定
+    CONFIDENCE_THRESHOLD = 0.85  # 信心度低於 85% 視為「無動作」
+    STANDING_THRESHOLD = 150.0   # 站立判斷的角度閾值
+    BODY_CONF_THRESHOLD = 0.5    # 完整身體偵測的置信度閾值
+    print(f"動作信心度門檻: {CONFIDENCE_THRESHOLD:.0%}")
+    print(f"站立角度閾值: {STANDING_THRESHOLD}°")
+    print(f"身體偵測置信度: {BODY_CONF_THRESHOLD:.0%}")
 
     # 動作顏色對應
     action_colors = {
@@ -53,7 +133,17 @@ def main():
     print("  - 按 'q' 或 ESC 退出程式")
     print("  - 按 's' 截圖保存")
     print("  - 按 '0-9' 切換攝影機")
+    print("  - 按 '+' 或 '=' 提高動作信心度門檻 (+5%)")
+    print("  - 按 '-' 降低動作信心度門檻 (-5%)")
+    print("  - 按 '[' 降低站立角度閾值 (-5°)")
+    print("  - 按 ']' 提高站立角度閾值 (+5°)")
+    print("  - 按 ',' 降低身體偵測置信度 (-5%)")
+    print("  - 按 '.' 提高身體偵測置信度 (+5%)")
     print("\n開始即時辨識...\n")
+
+    confidence_threshold = CONFIDENCE_THRESHOLD  # 使用可調整的變數
+    standing_threshold = STANDING_THRESHOLD      # 站立判斷閾值
+    body_conf_threshold = BODY_CONF_THRESHOLD    # 身體偵測置信度閾值
 
     # 設定視窗
     window_name = "Kungfu Action Recognition"
@@ -84,25 +174,55 @@ def main():
             annotated_frame = results[0].plot()
             display_frame = annotated_frame
 
-            # 取得關鍵點
+            # 取得關鍵點座標和置信度
             keypoints_xy = results[0][0].keypoints.xy[0].cpu().numpy()
+            keypoints_conf = results[0][0].keypoints.conf[0].cpu().numpy()
 
-            if is_valid_keypoints(keypoints_xy):
+            # 先檢查是否偵測到完整身體（使用置信度判斷）
+            is_full_body, missing_parts = is_full_body_detected(keypoints_xy, keypoints_conf, min_confidence=body_conf_threshold)
+            if not is_full_body:
+                action_text = "Waiting for full body..."
+                # 顯示缺少的部位
+                if missing_parts:
+                    confidence_text = f"Missing: {', '.join(missing_parts[:3])}"
+                    if len(missing_parts) > 3:
+                        confidence_text += f" +{len(missing_parts)-3} more"
+                color = (128, 128, 128)
+            elif is_valid_keypoints(keypoints_xy):
                 try:
                     # 提取角度
                     angles = extract_angles_from_keypoints(keypoints_xy)
 
-                    # 進行動作分類
-                    action_code, action_name, probs = kungfu_classifier.predict(angles)
-                    confidence = kungfu_classifier.get_confidence(probs)
+                    # 先判斷是否為站立姿態
+                    if is_standing_pose(angles, standing_threshold):
+                        action_text = "Standing"
+                        confidence_text = "(Detected by joint angles)"
+                        color = (128, 128, 128)  # 灰色
 
-                    action_text = action_name
-                    confidence_text = f"Confidence: {confidence:.1%}"
-                    color = action_colors.get(action_code, (128, 128, 128))
+                        if frame_count % 60 == 0:
+                            print(f"[Frame {frame_count}] Standing - knees/hips > {standing_threshold}°")
+                    else:
+                        # 非站立狀態，進行動作分類
+                        action_code, action_name, probs = kungfu_classifier.predict(angles)
+                        confidence = kungfu_classifier.get_confidence(probs)
 
-                    # 每 30 幀輸出一次到終端機
-                    if frame_count % 30 == 0:
-                        print(f"[Frame {frame_count}] {action_name} ({confidence:.1%})")
+                        # 信心度門檻過濾
+                        if confidence >= confidence_threshold:
+                            action_text = action_name
+                            confidence_text = f"Confidence: {confidence:.1%}"
+                            color = action_colors.get(action_code, (128, 128, 128))
+
+                            # 每 30 幀輸出一次到終端機
+                            if frame_count % 30 == 0:
+                                print(f"[Frame {frame_count}] {action_name} ({confidence:.1%})")
+                        else:
+                            # 信心度太低，視為無明確動作
+                            action_text = "Preparing..."
+                            confidence_text = f"(Best: {action_name} {confidence:.1%})"
+                            color = (128, 128, 128)
+
+                            if frame_count % 60 == 0:
+                                print(f"[Frame {frame_count}] Preparing - {action_name} ({confidence:.1%}) < {confidence_threshold:.0%}")
 
                 except Exception as e:
                     action_text = "Detection Error"
@@ -139,13 +259,13 @@ def main():
                 2
             )
 
-        # 繪製操作提示
+        # 繪製操作提示和門檻值
         cv2.putText(
             display_frame,
-            "Press 'q' to quit | 's' to screenshot",
-            (display_frame.shape[1] - 400, 30),
+            f"Conf: {confidence_threshold:.0%} | Stand: {standing_threshold:.0f} | Body: {body_conf_threshold:.0%} | 'q' quit",
+            (display_frame.shape[1] - 580, 30),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
+            0.5,
             (200, 200, 200),
             1
         )
@@ -175,6 +295,24 @@ def main():
             else:
                 print(f"無法開啟攝影機 {new_camera_id}，恢復使用攝影機 {camera_id}")
                 cap = cv2.VideoCapture(camera_id)
+        elif key == ord('+') or key == ord('='):  # 提高信心度門檻
+            confidence_threshold = min(0.95, confidence_threshold + 0.05)
+            print(f"信心度門檻調整為: {confidence_threshold:.0%}")
+        elif key == ord('-'):  # 降低信心度門檻
+            confidence_threshold = max(0.30, confidence_threshold - 0.05)
+            print(f"信心度門檻調整為: {confidence_threshold:.0%}")
+        elif key == ord(']'):  # 提高站立角度閾值
+            standing_threshold = min(175.0, standing_threshold + 5.0)
+            print(f"站立角度閾值調整為: {standing_threshold:.0f}°")
+        elif key == ord('['):  # 降低站立角度閾值
+            standing_threshold = max(140.0, standing_threshold - 5.0)
+            print(f"站立角度閾值調整為: {standing_threshold:.0f}°")
+        elif key == ord('.'):  # 提高身體偵測置信度
+            body_conf_threshold = min(0.9, body_conf_threshold + 0.05)
+            print(f"身體偵測置信度調整為: {body_conf_threshold:.0%}")
+        elif key == ord(','):  # 降低身體偵測置信度
+            body_conf_threshold = max(0.1, body_conf_threshold - 0.05)
+            print(f"身體偵測置信度調整為: {body_conf_threshold:.0%}")
 
     # 清理資源
     cap.release()

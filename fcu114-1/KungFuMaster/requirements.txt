@@ -1,0 +1,33 @@
+# ===========================================
+# 功夫訓練系統 - Python 套件需求
+# KungFu Training System - Requirements
+# ===========================================
+
+# 深度學習框架 (Deep Learning Framework)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# YOLO 姿態估計模型 (YOLO Pose Estimation)
+ultralytics>=8.0.0
+
+# 圖形使用者介面 (GUI Framework)
+PyQt6>=6.4.0
+
+# 影像處理 (Image Processing)
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# 模型序列化 (Model Serialization)
+joblib>=1.3.0
+
+# ===========================================
+# 可選套件 (Optional Packages)
+# ===========================================
+
+# GPU 加速 (需要 NVIDIA GPU + CUDA)
+# 請根據您的 CUDA 版本安裝對應的 PyTorch
+# 參考: https://pytorch.org/get-started/locally/
+
+# 開發工具 (Development Tools)
+# ipython>=8.0.0
+# jupyter>=1.0.0

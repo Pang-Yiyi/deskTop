@@ -16,6 +16,9 @@ nlp_eval_report.md
 # Local analysis cache/output
 analysis_summary.json
 
+# Course material is local reference only.
+課程說明.pdf
+
 # OS/editor files
 .DS_Store
 Thumbs.db

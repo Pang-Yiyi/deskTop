@@ -1,0 +1,280 @@
+{
+  "description": "台中市交通事故決策支援系統 NLP 評估測試集",
+  "version": "1.0",
+  "total": 30,
+  "intent_distribution": {
+    "風險預測": 6,
+    "事故熱點查詢": 4,
+    "時段查詢": 3,
+    "肇因分析": 4,
+    "政策建議": 3,
+    "代碼說明": 2,
+    "民眾出行建議": 4,
+    "超出資料範圍": 3,
+    "需要補充條件": 1
+  },
+  "cases": [
+    {
+      "id": 1,
+      "question": "西屯區星期五晚上六點雨天危險嗎？",
+      "expected_intent": "風險預測",
+      "expected_entities": {
+        "district": "西屯區",
+        "weekday": "星期五",
+        "hour": 18,
+        "weather": "雨"
+      },
+      "note": "標準風險預測，多實體組合"
+    },
+    {
+      "id": 2,
+      "question": "晚上騎機車安全嗎？",
+      "expected_intent": "風險預測",
+      "expected_entities": {
+        "hour": 20,
+        "transport_mode": "機車"
+      },
+      "note": "口語時段（晚上），無行政區"
+    },
+    {
+      "id": 3,
+      "question": "西屯區什麼時段風險最高？",
+      "expected_intent": "風險預測",
+      "expected_entities": {
+        "district": "西屯區"
+      },
+      "note": "邊界案例：含「時段」詞但意圖是風險預測"
+    },
+    {
+      "id": 4,
+      "question": "今天是星期五下班時間雨天，危不危險？",
+      "expected_intent": "風險預測",
+      "expected_entities": {
+        "weekday": "星期五",
+        "hour": 18,
+        "weather": "雨"
+      },
+      "note": "邊界案例：含「今天」但非詢問未來即時事故"
+    },
+    {
+      "id": 5,
+      "question": "北屯區凌晨兩點發生事故的機率高嗎？",
+      "expected_intent": "風險預測",
+      "expected_entities": {
+        "district": "北屯區",
+        "hour": 2
+      },
+      "note": "「凌晨」時段識別"
+    },
+    {
+      "id": 6,
+      "question": "起霧天騎車安全嗎？",
+      "expected_intent": "風險預測",
+      "expected_entities": {
+        "weather": "霧或煙"
+      },
+      "note": "邊界案例：「起霧」→「霧或煙」天候修正"
+    },
+    {
+      "id": 7,
+      "question": "台中市哪個行政區事故最多？",
+      "expected_intent": "事故熱點查詢",
+      "expected_entities": {},
+      "note": "標準熱點查詢"
+    },
+    {
+      "id": 8,
+      "question": "事故最集中的地區在哪裡？",
+      "expected_intent": "事故熱點查詢",
+      "expected_entities": {},
+      "note": "熱點語義，無行政區"
+    },
+    {
+      "id": 9,
+      "question": "西屯區、北屯區、南屯區哪個事故最多？",
+      "expected_intent": "事故熱點查詢",
+      "expected_entities": {
+        "district": "西屯區"
+      },
+      "note": "多區比較，提取第一個行政區"
+    },
+    {
+      "id": 10,
+      "question": "雨天比較容易發生事故嗎？",
+      "expected_intent": "事故熱點查詢",
+      "expected_entities": {
+        "weather": "雨"
+      },
+      "note": "天候與事故關聯，屬熱點/統計查詢"
+    },
+    {
+      "id": 11,
+      "question": "什麼時間最容易發生交通事故？",
+      "expected_intent": "時段查詢",
+      "expected_entities": {},
+      "note": "標準時段查詢"
+    },
+    {
+      "id": 12,
+      "question": "幾點是交通事故的高峰時段？",
+      "expected_intent": "時段查詢",
+      "expected_entities": {},
+      "note": "時段語義，無風險語詞"
+    },
+    {
+      "id": 13,
+      "question": "上下班時段事故比較多嗎？",
+      "expected_intent": "時段查詢",
+      "expected_entities": {},
+      "note": "通勤語境的時段查詢"
+    },
+    {
+      "id": 14,
+      "question": "最常見的肇事原因是什麼？",
+      "expected_intent": "肇因分析",
+      "expected_entities": {},
+      "note": "標準肇因查詢"
+    },
+    {
+      "id": 15,
+      "question": "為什麼西屯區事故那麼多？",
+      "expected_intent": "肇因分析",
+      "expected_entities": {
+        "district": "西屯區"
+      },
+      "note": "含「為什麼」的肇因分析"
+    },
+    {
+      "id": 16,
+      "question": "西屯區事故多，是否可能和車流量、通勤人口或商圈有關？",
+      "expected_intent": "肇因分析",
+      "expected_entities": {
+        "district": "西屯區"
+      },
+      "note": "外在因素推論，屬肇因分析"
+    },
+    {
+      "id": 17,
+      "question": "酒駕造成的事故佔多少比例？",
+      "expected_intent": "肇因分析",
+      "expected_entities": {},
+      "note": "飲酒肇因，應路由到肇因分析"
+    },
+    {
+      "id": 18,
+      "question": "如果我是交通局，應該優先改善哪些問題？",
+      "expected_intent": "政策建議",
+      "expected_entities": {
+        "role": "交通局"
+      },
+      "note": "標準政策建議"
+    },
+    {
+      "id": 19,
+      "question": "交通管理單位應該如何減少西屯區事故？",
+      "expected_intent": "政策建議",
+      "expected_entities": {
+        "district": "西屯區"
+      },
+      "note": "管理單位決策語境"
+    },
+    {
+      "id": 20,
+      "question": "針對雨天事故應該採取什麼管理措施？",
+      "expected_intent": "政策建議",
+      "expected_entities": {
+        "weather": "雨"
+      },
+      "note": "含天候條件的政策建議"
+    },
+    {
+      "id": 21,
+      "question": "肇事因素代碼 07 是什麼？",
+      "expected_intent": "代碼說明",
+      "expected_entities": {
+        "keyword": "代碼 07"
+      },
+      "note": "標準代碼查詢"
+    },
+    {
+      "id": 22,
+      "question": "天候欄位代碼怎麼看？",
+      "expected_intent": "代碼說明",
+      "expected_entities": {},
+      "note": "欄位說明查詢"
+    },
+    {
+      "id": 23,
+      "question": "我要從西屯區騎機車去大里區，晚上六點下雨，危不危險？",
+      "expected_intent": "民眾出行建議",
+      "expected_entities": {
+        "origin_district": "西屯區",
+        "destination_district": "大里區",
+        "transport_mode": "機車",
+        "hour": 18,
+        "weather": "雨"
+      },
+      "note": "標準出行建議，多實體"
+    },
+    {
+      "id": 24,
+      "question": "開車從豐原到西屯下午雨天怎麼辦？",
+      "expected_intent": "民眾出行建議",
+      "expected_entities": {
+        "origin_district": "豐原區",
+        "destination_district": "西屯區",
+        "transport_mode": "汽車",
+        "weather": "雨"
+      },
+      "note": "出行建議含「豐原」（非「豐原區」）"
+    },
+    {
+      "id": 25,
+      "question": "傍晚走北屯區騎自行車安全嗎？",
+      "expected_intent": "民眾出行建議",
+      "expected_entities": {
+        "district": "北屯區",
+        "hour": 18,
+        "transport_mode": "自行車"
+      },
+      "note": "邊界：單一行政區+交通工具，無明確起訖點"
+    },
+    {
+      "id": 26,
+      "question": "行人過馬路在哪個時段最危險？",
+      "expected_intent": "風險預測",
+      "expected_entities": {
+        "transport_mode": "行人"
+      },
+      "note": "含交通工具的風險查詢，非出行建議（無起訖點）"
+    },
+    {
+      "id": 27,
+      "question": "台北市哪個行政區事故最多？",
+      "expected_intent": "超出資料範圍",
+      "expected_entities": {},
+      "note": "其他縣市，超出資料範圍"
+    },
+    {
+      "id": 28,
+      "question": "明天早上七點出門會不會出車禍？",
+      "expected_intent": "超出資料範圍",
+      "expected_entities": {},
+      "note": "未來即時事故，超出資料範圍"
+    },
+    {
+      "id": 29,
+      "question": "高雄市交通事故最近有沒有增加？",
+      "expected_intent": "超出資料範圍",
+      "expected_entities": {},
+      "note": "其他縣市且問趨勢，超出範圍"
+    },
+    {
+      "id": 30,
+      "question": "這樣危險嗎？",
+      "expected_intent": "需要補充條件",
+      "expected_entities": {},
+      "note": "問題不完整，需要補充條件"
+    }
+  ]
+}

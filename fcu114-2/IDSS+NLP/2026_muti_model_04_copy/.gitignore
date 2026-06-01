@@ -1,0 +1,23 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Runtime logs and temporary sharing files
+*.log
+*.err
+cloudflare_share_url.txt
+
+# Generated evaluation outputs; keep dataset and scripts instead.
+nlp_eval_results.json
+nlp_eval_report.md
+
+# Local analysis cache/output
+analysis_summary.json
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
